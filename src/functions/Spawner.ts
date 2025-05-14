@@ -7,21 +7,25 @@ import { DefaultAzureCredential } from "@azure/identity";
 
 /**
  * needed values to spwan a new build container
+ * - deployment id
+ * - project id
  * - github url
  * - branch
  * - project slug
  */
 
-const testCreate: QueueItem = {
-  githubUrl: "https://github.com/mdhruvil/deplit-zaggonaut.git",
-  branch: "main",
-  projectSlug: "ztest",
-};
+// const testCreate: QueueItem = {
+//   githubUrl: "https://github.com/mdhruvil/deplit-zaggonaut.git",
+//   branch: "main",
+//   projectSlug: "ztest",
+// };
 
 type QueueItem = {
   githubUrl: string;
   branch: string;
-  projectSlug: string;
+  projectId: string;
+  deploymentId: string;
+  gitCommitSha: string;
 };
 
 export async function Spawner(
@@ -31,18 +35,45 @@ export async function Spawner(
   console.log("Queue item:", queueItem);
   const item = queueItem;
 
-  if (!item.githubUrl || !item.branch || !item.projectSlug) {
+  const requiredProperties = [
+    "githubUrl",
+    "branch",
+    "projectId",
+    "deploymentId",
+    "gitCommitSha",
+  ];
+
+  const missingProperties = requiredProperties.filter(
+    (property) => !item[property]
+  );
+
+  if (missingProperties.length > 0) {
     throw new Error(
-      "Missing required properties: githubUrl, branch, or projectSlug"
+      `Missing required properties in queue item: ${missingProperties.join(
+        ", "
+      )}`
     );
   }
+
+  const requiredEnvVars = [
+    "APPCONTAINERS_SUBSCRIPTION_ID",
+    "APPCONTAINERS_RESOURCE_GROUP",
+    "DEPLIT_BACKEND_API_URL",
+    "DEPLIT_API_SIDECAR_KEY",
+  ];
+
+  const missingEnvVars = requiredEnvVars.filter(
+    (envVar) => !process.env[envVar]
+  );
+  if (missingEnvVars.length > 0) {
+    throw new Error(
+      `Missing required environment variables: ${missingEnvVars.join(", ")}`
+    );
+  }
+
   const { APPCONTAINERS_SUBSCRIPTION_ID, APPCONTAINERS_RESOURCE_GROUP } =
     process.env;
-  if (!APPCONTAINERS_SUBSCRIPTION_ID || !APPCONTAINERS_RESOURCE_GROUP) {
-    throw new Error(
-      "Missing required environment variables: APPCONTAINERS_SUBSCRIPTION_ID or APPCONTAINERS_RESOURCE_GROUP"
-    );
-  }
+
   const credential = new DefaultAzureCredential();
   const containerAppsClient = new ContainerAppsAPIClient(
     credential,
@@ -54,13 +85,19 @@ export async function Spawner(
   const builderEnv = {
     DEPLIT_REPO_URL: item.githubUrl,
     DEPLIT_BRANCH: item.branch,
-    DEPLIT_PROJECT_SLUG: item.projectSlug,
+    DEPLIT_GIT_COMMIT_SHA: item.gitCommitSha,
+    DEPLIT_PROJECT_ID: item.projectId,
+    DEPLIT_DEPLOYMENT_ID: item.deploymentId,
     DEPLIT_INTERNAL_SIDECAR_TOKEN: token,
     DEPLIT_SIDECAR_PORT: "9090",
   };
 
   const sidecarEnv = {
     DEPLIT_INTERNAL_API_TOKEN: token,
+    DEPLIT_BACKEND_API_URL: process.env.DEPLIT_BACKEND_API_URL,
+    DEPLIT_API_SIDECAR_KEY: process.env.DEPLIT_API_SIDECAR_KEY,
+    DEPLIT_DEPLOYMENT_ID: item.deploymentId,
+    DEPLIT_PROJECT_ID: item.projectId,
   };
 
   const template: JobExecutionTemplate = {
