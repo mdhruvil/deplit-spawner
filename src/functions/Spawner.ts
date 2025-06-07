@@ -129,7 +129,18 @@ export async function Spawner(
     ],
   };
 
-  console.log(JSON.stringify(template, null, 2));
+  if (process.env.NODE_ENV === "development") {
+    console.log("Running in development mode, skipping job creation.");
+    builderEnv["NODE_ENV"] = "development";
+    sidecarEnv.DEPLIT_BACKEND_API_URL = "http://host.docker.internal:3000";
+    const envVars = [
+      ...Object.entries(builderEnv).map(([name, value]) => `${name}=${value}`),
+      ...Object.entries(sidecarEnv).map(([name, value]) => `${name}=${value}`),
+    ].join(" ");
+    console.log("Run the following command to start the job locally:");
+    console.log(`${envVars} docker compose up`);
+    return;
+  }
 
   const jobName = "deplit-builder-job";
 
